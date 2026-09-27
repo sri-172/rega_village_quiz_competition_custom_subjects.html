@@ -213,6 +213,17 @@ body{font-family:'ArialOriginal','Arial',sans-serif;} h1,h2,h3,.medium-label,.ba
 </style>
 
 <style>
+#cloudSyncStatus{position:fixed;right:14px;bottom:14px;z-index:9999;padding:8px 12px;border-radius:999px;background:#173f5f;color:#fff;font:700 12px Arial,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.18);opacity:.96}
+#cloudSyncStatus.ready{background:#16803c}
+#cloudSyncStatus.warn{background:#a15c00}
+#cloudSyncStatus.error{background:#b42318}
+#cloudSyncStatus.syncing{background:#173f5f}
+body.cloud-sync-lock{overflow:hidden}
+#cloudSyncBlocker{position:fixed;inset:0;background:rgba(255,255,255,.96);z-index:9998;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}
+#cloudSyncBlocker .cloud-card{max-width:520px;background:#fff;border:1px solid #d9e1e8;border-radius:18px;padding:28px;box-shadow:0 16px 50px rgba(0,0,0,.12)}
+</style>
+
+<style>
 .question-number-btn.asked-question,
 .question-number-btn.asked-question:hover,
 .question-number-btn.asked-question:focus {
@@ -884,6 +895,14 @@ button,input,select,textarea,a{z-index:2}
 </section>
 </main>
 </main>
+<div id="cloudSyncStatus" class="syncing">☁ Cloud: Connecting…</div>
+<div id="cloudSyncBlocker">
+  <div class="cloud-card">
+    <h2>☁ Connecting to Quiz Cloud</h2>
+    <p>Loading the shared Rega Village Quiz data. Please wait…</p>
+    <p class="small">Your groups, questions and scores are synchronized across devices.</p>
+  </div>
+</div>
 <footer>
 <div class="developer-credit">Developed by Srinivas Ravada</div></footer>
 
@@ -2788,6 +2807,200 @@ document.addEventListener("DOMContentLoaded",function(){
 // SECURITY DEFAULT: all gated sections are locked until Admin authenticates
 // and explicitly approves the respective section.
 adminUnlocked=false;APPROVAL_SECTIONS.forEach(function(id){if(!sectionIsApproved(id))lockSection(id);});const approval=document.getElementById("adminSectionApproval");if(approval)approval.classList.add("hidden");});
+</script>
+
+<script>
+/* ================= SHARED SUPABASE CLOUD SYNC =================
+   This layer keeps the existing localStorage app as the offline/cache layer,
+   while mirroring competition data to one shared Supabase row.
+*/
+(function(){
+  const SUPABASE_URL = "https://lvaxlktszjubkcfpngof.supabase.co";
+  const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_KpdI9JMZWiffJk83FoQLyg_N-YzD_W8";
+  const CLOUD_TABLE = "rega_quiz_state";
+  const CLOUD_ID = "main";
+  const CLOUD_KEYS = [
+    "regaDetails","regaInstructions","regaGroups","regaQuestionBank","regaPrizes",
+    "regaQuizRules","regaAppearance","regaScores","regaScoreLedger",
+    "regaAnsweredGroupLedger","regaQuestionAnswerRecords","regaSubjectScoreLedger",
+    "regaSelectedLeaderboardSubject"
+  ];
+  const originalSetItem = Storage.prototype.setItem;
+  const originalRemoveItem = Storage.prototype.removeItem;
+  let applyingCloud = false;
+  let cloudReady = false;
+  let syncTimer = null;
+  let lastCloudUpdatedAt = null;
+  let polling = false;
+
+  function status(text, cls){
+    const el=document.getElementById("cloudSyncStatus");
+    if(!el)return;
+    el.textContent=text;
+    el.className=cls||"syncing";
+  }
+
+  function setBlocker(show){
+    const b=document.getElementById("cloudSyncBlocker");
+    if(b)b.style.display=show?"flex":"none";
+    document.body.classList.toggle("cloud-sync-lock",!!show);
+  }
+
+  function headers(extra){
+    return Object.assign({
+      "apikey":SUPABASE_PUBLISHABLE_KEY,
+      "Authorization":"Bearer "+SUPABASE_PUBLISHABLE_KEY,
+      "Content-Type":"application/json"
+    },extra||{});
+  }
+
+  function collectLocalState(){
+    const data={};
+    CLOUD_KEYS.forEach(function(k){
+      const v=localStorage.getItem(k);
+      if(v!==null)data[k]=v;
+    });
+    return data;
+  }
+
+  function applyCloudState(data){
+    applyingCloud=true;
+    try{
+      CLOUD_KEYS.forEach(function(k){
+        if(Object.prototype.hasOwnProperty.call(data||{},k)) originalSetItem.call(localStorage,k,String(data[k]));
+        else originalRemoveItem.call(localStorage,k);
+      });
+    }finally{ applyingCloud=false; }
+  }
+
+  async function fetchCloudRow(){
+    const url=SUPABASE_URL+"/rest/v1/"+CLOUD_TABLE+"?id=eq."+encodeURIComponent(CLOUD_ID)+"&select=id,data,updated_at&limit=1";
+    const res=await fetch(url,{headers:headers(),cache:"no-store"});
+    if(!res.ok)throw new Error("Cloud read failed ("+res.status+")");
+    const rows=await res.json();
+    return rows[0]||null;
+  }
+
+  async function saveCloudState(){
+    if(!cloudReady || applyingCloud)return;
+    const payload={
+      id:CLOUD_ID,
+      data:collectLocalState(),
+      updated_at:new Date().toISOString()
+    };
+    const url=SUPABASE_URL+"/rest/v1/"+CLOUD_TABLE;
+    const res=await fetch(url,{
+      method:"POST",
+      headers:headers({"Prefer":"resolution=merge-duplicates,return=representation"}),
+      body:JSON.stringify(payload)
+    });
+    if(!res.ok){
+      const msg=await res.text().catch(function(){return "";});
+      throw new Error("Cloud save failed ("+res.status+") "+msg.slice(0,180));
+    }
+    const rows=await res.json().catch(function(){return [];});
+    if(rows&&rows[0]&&rows[0].updated_at)lastCloudUpdatedAt=rows[0].updated_at;
+  }
+
+  function scheduleCloudSave(){
+    if(!cloudReady || applyingCloud)return;
+    clearTimeout(syncTimer);
+    syncTimer=setTimeout(async function(){
+      status("☁ Saving…","syncing");
+      try{
+        await saveCloudState();
+        status("☁ Cloud: Synced","ready");
+      }catch(e){
+        console.error(e);
+        status("☁ Sync error — retrying","error");
+      }
+    },700);
+  }
+
+  function installStorageSync(){
+    Storage.prototype.setItem=function(key,value){
+      originalSetItem.call(this,key,value);
+      if(this===localStorage && CLOUD_KEYS.indexOf(String(key))!==-1) scheduleCloudSave();
+    };
+    Storage.prototype.removeItem=function(key){
+      originalRemoveItem.call(this,key);
+      if(this===localStorage && CLOUD_KEYS.indexOf(String(key))!==-1) scheduleCloudSave();
+    };
+  }
+
+  async function initialSync(){
+    setBlocker(true);
+    status("☁ Cloud: Connecting…","syncing");
+    try{
+      const row=await fetchCloudRow();
+      if(row){
+        lastCloudUpdatedAt=row.updated_at||null;
+        const hydratedAt=sessionStorage.getItem("regaCloudHydratedAt");
+        if(hydratedAt!==lastCloudUpdatedAt){
+          applyCloudState(row.data||{});
+          sessionStorage.setItem("regaCloudHydratedAt",lastCloudUpdatedAt||"");
+          window.location.reload();
+          return;
+        }
+        status("☁ Cloud: Synced","ready");
+      }else{
+        /* First device initializes the shared record from its current local data. */
+        const payload={id:CLOUD_ID,data:collectLocalState(),updated_at:new Date().toISOString()};
+        const url=SUPABASE_URL+"/rest/v1/"+CLOUD_TABLE;
+        const res=await fetch(url,{method:"POST",headers:headers({"Prefer":"return=representation"}),body:JSON.stringify(payload)});
+        if(!res.ok)throw new Error("Cloud initialization failed ("+res.status+")");
+        const rows=await res.json().catch(function(){return [];});
+        lastCloudUpdatedAt=rows&&rows[0]?rows[0].updated_at:payload.updated_at;
+        sessionStorage.setItem("regaCloudHydratedAt",lastCloudUpdatedAt||"");
+        status("☁ Cloud: Initialized","ready");
+      }
+      cloudReady=true;
+      installStorageSync();
+      setBlocker(false);
+      startPolling();
+    }catch(e){
+      console.error(e);
+      cloudReady=false;
+      status("☁ Cloud unavailable — local mode","warn");
+      const b=document.querySelector("#cloudSyncBlocker .cloud-card p");
+      if(b)b.textContent="Cloud setup is not complete yet. Please check the Supabase table and policies, then refresh this page.";
+      const btn=document.createElement("button");
+      btn.textContent="Continue Offline";
+      btn.onclick=function(){setBlocker(false);};
+      document.querySelector("#cloudSyncBlocker .cloud-card")?.appendChild(btn);
+    }
+  }
+
+  async function pollCloud(){
+    if(!cloudReady || polling)return;
+    polling=true;
+    try{
+      const row=await fetchCloudRow();
+      if(row && row.updated_at && row.updated_at!==lastCloudUpdatedAt){
+        /* Pull remote changes made by another device. */
+        clearTimeout(syncTimer);
+        applyingCloud=true;
+        try{ applyCloudState(row.data||{}); }finally{ applyingCloud=false; }
+        lastCloudUpdatedAt=row.updated_at;
+        sessionStorage.setItem("regaCloudHydratedAt",lastCloudUpdatedAt);
+        window.location.reload();
+        return;
+      }
+    }catch(e){
+      console.warn("Cloud polling error",e);
+    }finally{polling=false;}
+  }
+
+  function startPolling(){
+    setInterval(pollCloud,5000);
+  }
+
+  window.addEventListener("online",function(){
+    if(cloudReady){status("☁ Back online — syncing…","syncing");scheduleCloudSave();}
+  });
+
+  initialSync();
+})();
 </script>
 </body>
 </html>
