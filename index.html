@@ -2460,14 +2460,24 @@ function loadAdminQuestionSelectors(){
   document.getElementById("adminQuestionSubject").innerHTML=subjects.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join("");
   document.getElementById("adminQuestionSubject").value=s;
   const count=getQuestionCount(s);
-  document.getElementById("adminQuestionNo").innerHTML=Array.from({length:count},(_,i)=>`<option value="${i}">Question ${i+1}</option>`).join("");
+  const qSelect=document.getElementById("adminQuestionNo");
+  const previous=qSelect.value;
+  qSelect.innerHTML='<option value="" selected>Select Question</option>' +
+    Array.from({length:count},(_,i)=>`<option value="${i}">Question ${i+1}</option>`).join("");
+  if(previous!=="" && Number(previous)>=0 && Number(previous)<count){
+    qSelect.value=previous;
+  }else{
+    qSelect.value="";
+  }
   loadAdminQuestion();
   renderQuizSubjectSelectors();
   loadSubjectManager();
 }
 function loadAdminQuestion(){
   const s=document.getElementById("adminQuestionSubject").value;
-  const i=Number(document.getElementById("adminQuestionNo").value||0);
+  const selected=document.getElementById("adminQuestionNo").value;
+  if(selected==="")return;
+  const i=Number(selected);
   const q=questionBank[s] && questionBank[s][i];
   if(!q)return;
   document.getElementById("adminQuestionEn").value=q.en||"";
@@ -2476,7 +2486,9 @@ function loadAdminQuestion(){
 }
 function adminSaveQuestion(){
   const s=document.getElementById("adminQuestionSubject").value;
-  const i=Number(document.getElementById("adminQuestionNo").value||0);
+  const selected=document.getElementById("adminQuestionNo").value;
+  if(selected===""){alert("Please select a question first.");return;}
+  const i=Number(selected);
   if(!questionBank[s])questionBank[s]=[];
   questionBank[s][i]={en:document.getElementById("adminQuestionEn").value,te:document.getElementById("adminQuestionTe").value,answer:document.getElementById("adminQuestionAnswer").value};
   localStorage.setItem("regaQuestionBank",JSON.stringify(questionBank));
