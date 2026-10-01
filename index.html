@@ -2872,9 +2872,27 @@ document.documentElement.style.setProperty("--accent",appearance.accent);
 document.getElementById("siteFooter").style.display=appearance.footer==="yes"?"block":"none";
 renderInstructions();
 document.addEventListener("DOMContentLoaded",function(){
-// SECURITY DEFAULT: all gated sections are locked until Admin authenticates
-// and explicitly approves the respective section.
-adminUnlocked=false;APPROVAL_SECTIONS.forEach(function(id){if(!sectionIsApproved(id))lockSection(id);});const approval=document.getElementById("adminSectionApproval");if(approval)approval.classList.add("hidden");});
+  /* Restore only this tab/device's admin session after reload. */
+  let authenticated=false;
+  try{authenticated=sessionStorage.getItem("regaAdminAuthenticated")==="true";}catch(e){}
+  adminUnlocked=authenticated;
+  APPROVAL_SECTIONS.forEach(function(id){
+    if(authenticated && sectionIsApproved(id)) unlockSection(id);
+    else lockSection(id);
+  });
+  const approval=document.getElementById("adminSectionApproval");
+  if(approval)approval.classList.toggle("hidden",!authenticated);
+  const loginCard=document.getElementById("adminLoginCard");
+  const adminPanel=document.getElementById("adminPanel");
+  if(authenticated){
+    if(loginCard)loginCard.classList.add("hidden");
+    if(adminPanel)adminPanel.classList.remove("hidden");
+    loadAdminPanel();
+  }else{
+    if(loginCard)loginCard.classList.remove("hidden");
+    if(adminPanel)adminPanel.classList.add("hidden");
+  }
+});
 </script>
 
 <script>
