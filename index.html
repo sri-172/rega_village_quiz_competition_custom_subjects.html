@@ -581,6 +581,21 @@ html body [lang="te-IN"] * {
   font-family: "Mandali", "Noto Sans Telugu", "Nirmala UI", sans-serif !important;
 }
 </style>
+<style id="telugu-mandali-final">
+/* FINAL TYPOGRAPHY: Cardo for English; Mandali only for Telugu characters.
+   Mixed Telugu + English lines are handled character-by-character by the script below. */
+html body * {
+  font-family: "Cardo", Georgia, serif !important;
+}
+html body .telugu,
+html body .telugu * {
+  font-family: "Cardo", Georgia, serif !important;
+}
+html body .telugu-text,
+html body .telugu-text * {
+  font-family: "Mandali", "Noto Sans Telugu", "Nirmala UI", sans-serif !important;
+}
+</style>
 </head>
 <body>
 <header>
@@ -3020,6 +3035,61 @@ adminUnlocked=false;APPROVAL_SECTIONS.forEach(function(id){if(!sectionIsApproved
   });
 
   initialSync();
+})();
+</script>
+<script id="telugu-mandali-runtime">
+(function(){
+  const TELUGU=/[\u0C00-\u0C7F]/;
+  const SKIP=new Set(["SCRIPT","STYLE","NOSCRIPT","TEXTAREA"]);
+  function wrapTeluguText(root){
+    if(!root) return;
+    const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{
+      acceptNode:function(node){
+        const p=node.parentElement;
+        if(!p || SKIP.has(p.tagName) || p.closest("#telugu-mandali-runtime")) return NodeFilter.FILTER_REJECT;
+        if(p.classList.contains("telugu-text")) return NodeFilter.FILTER_REJECT;
+        if(!TELUGU.test(node.nodeValue||"")) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    const nodes=[];
+    let n;
+    while((n=walker.nextNode())) nodes.push(n);
+    nodes.forEach(function(node){
+      const text=node.nodeValue||"";
+      const frag=document.createDocumentFragment();
+      let last=0, match;
+      const re=/[\u0C00-\u0C7F]+(?:[\u0C00-\u0C7F\s\u200C\u200D\u200B]*[\u0C00-\u0C7F])*/g;
+      while((match=re.exec(text))){
+        if(match.index>last) frag.appendChild(document.createTextNode(text.slice(last,match.index)));
+        const span=document.createElement("span");
+        span.className="telugu-text";
+        span.textContent=match[0];
+        frag.appendChild(span);
+        last=match.index+match[0].length;
+      }
+      if(last<text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+      if(last>0) node.parentNode.replaceChild(frag,node);
+    });
+  }
+  function run(){ wrapTeluguText(document.body); }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",run);
+  else run();
+  const observer=new MutationObserver(function(records){
+    observer.disconnect();
+    try{
+      records.forEach(function(record){
+        record.addedNodes.forEach(function(node){
+          if(node.nodeType===Node.TEXT_NODE){
+            if(node.parentElement) wrapTeluguText(node.parentElement);
+          }else if(node.nodeType===Node.ELEMENT_NODE){
+            wrapTeluguText(node);
+          }
+        });
+      });
+    }finally{ observer.observe(document.body,{childList:true,subtree:true}); }
+  });
+  observer.observe(document.body,{childList:true,subtree:true});
 })();
 </script>
 </body>
