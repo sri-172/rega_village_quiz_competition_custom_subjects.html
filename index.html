@@ -3063,14 +3063,25 @@ document.addEventListener("DOMContentLoaded",function(){
     try{
       const row=await fetchCloudRow();
       if(row && row.updated_at && row.updated_at!==lastCloudUpdatedAt){
-        /* Pull remote changes made by another device. */
+        /* Update shared data in-place. Never reload here: a full reload used
+           to reset the in-memory admin gate and could cause an apparent
+           cross-device lock. */
         clearTimeout(syncTimer);
-        applyingCloud=true;
-        try{ applyCloudState(row.data||{}); }finally{ applyingCloud=false; }
+        applyCloudState(row.data||{});
         lastCloudUpdatedAt=row.updated_at;
         sessionStorage.setItem("regaCloudHydratedAt",lastCloudUpdatedAt);
-        window.location.reload();
-        return;
+        try{
+          if(typeof renderHeader==="function")renderHeader();
+          if(typeof renderGroups==="function")renderGroups();
+          if(typeof renderInstructions==="function")renderInstructions();
+          if(typeof renderAllSubjectLeaderboards==="function")renderAllSubjectLeaderboards();
+          if(typeof renderAnsweredGroupLeaderboard==="function")renderAnsweredGroupLeaderboard();
+          if(typeof renderWinners==="function")renderWinners();
+          if(adminUnlocked && typeof loadAdminPanel==="function")loadAdminPanel();
+        }catch(refreshError){
+          console.warn("Cloud UI refresh error",refreshError);
+        }
+        status("☁ Cloud: Updated from another device","ready");
       }
     }catch(e){
       console.warn("Cloud polling error",e);
