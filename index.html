@@ -2285,6 +2285,7 @@ function adminLogin(){
   const entered=document.getElementById("adminPassword").value;
   if(entered===adminPassword){
     adminUnlocked=true;
+    try{sessionStorage.setItem("regaAdminAuthenticated","true");}catch(e){}
     document.getElementById("adminLoginCard").classList.add("hidden");
     document.getElementById("adminPanel").classList.remove("hidden");
     document.getElementById("adminSectionApproval").classList.remove("hidden");
@@ -2295,7 +2296,10 @@ function adminLogin(){
 }
 function adminLogout(){
   adminUnlocked=false;
-  localStorage.removeItem(APPROVAL_KEY);
+  try{
+    sessionStorage.removeItem("regaAdminAuthenticated");
+    sessionStorage.removeItem(SESSION_APPROVAL_KEY);
+  }catch(e){}
   APPROVAL_SECTIONS.forEach(lockSection);
   document.getElementById("adminPanel").classList.add("hidden");
   document.getElementById("adminSectionApproval").classList.add("hidden");
