@@ -958,9 +958,25 @@ html body .telugu-text * {
 
 /* ADMIN APPROVAL GATE */
 const APPROVAL_KEY="regaAdminSectionApprovals";
+const SESSION_APPROVAL_KEY="regaAdminSectionApprovalsSession";
 const APPROVAL_SECTIONS=["instructions","quiz","leaderboard","groups","winners"];
-function approvedSections(){try{return JSON.parse(localStorage.getItem(APPROVAL_KEY)||"{}")||{};}catch(e){return {};}}
-function saveApprovedSections(v){localStorage.setItem(APPROVAL_KEY,JSON.stringify(v));}
+/* Admin approval is client-session scoped. Shared competition data is synchronized
+   separately, so one device/tab can never lock another client. */
+function approvedSections(){
+  try{
+    const session=JSON.parse(sessionStorage.getItem(SESSION_APPROVAL_KEY)||"null");
+    if(session && typeof session==="object") return session;
+    const legacy=JSON.parse(localStorage.getItem(APPROVAL_KEY)||"{}")||{};
+    if(Object.keys(legacy).length){
+      sessionStorage.setItem(SESSION_APPROVAL_KEY,JSON.stringify(legacy));
+      return legacy;
+    }
+    return {};
+  }catch(e){ return {}; }
+}
+function saveApprovedSections(v){
+  try{sessionStorage.setItem(SESSION_APPROVAL_KEY,JSON.stringify(v||{}));}catch(e){}
+}
 function sectionName(id){return ({instructions:"Instructions",quiz:"Quiz",leaderboard:"Leaderboard",groups:"Groups",winners:"Winners"})[id]||id;}
 function sectionIsApproved(id){return !!approvedSections()[id];}
 function lockSection(id){const e=document.getElementById(id);if(!e)return;if(e.dataset.approvalOriginal===undefined)e.dataset.approvalOriginal=e.innerHTML;e.innerHTML='<div class="admin-approval-overlay"><div class="card"><h2>Admin Approval Required</h2><p><strong>'+sectionName(id)+'</strong> is locked.</p><p class="small">Admin approval is required before this section can be opened.</p></div></div>'; }
