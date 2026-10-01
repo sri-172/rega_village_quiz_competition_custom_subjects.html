@@ -582,13 +582,21 @@ html body [lang="te-IN"] * {
 }
 </style>
 <style id="telugu-mandali-final">
-/* FINAL TYPOGRAPHY: Cardo for English; Mandali only for Telugu characters.
-   Mixed Telugu + English lines are handled character-by-character by the script below. */
+/* FINAL TYPOGRAPHY: English = Cardo, Telugu characters = Mandali.
+   Dedicated instruction rules override every legacy embedded-font rule. */
 html body * {
   font-family: "Cardo", Georgia, serif !important;
 }
-html body .telugu,
-html body .telugu * {
+html body #homeInstructions,
+html body #homeInstructions li,
+html body #homeInstructions li *,
+html body #instructions .instructions-list,
+html body #instructions .instructions-list li,
+html body #instructions .instructions-list li * {
+  font-family: "Cardo", Georgia, serif !important;
+}
+html body .english-text,
+html body .english-text * {
   font-family: "Cardo", Georgia, serif !important;
 }
 html body .telugu-text,
@@ -3040,39 +3048,40 @@ adminUnlocked=false;APPROVAL_SECTIONS.forEach(function(id){if(!sectionIsApproved
 <script id="telugu-mandali-runtime">
 (function(){
   const TELUGU=/[\u0C00-\u0C7F]/;
-  const SKIP=new Set(["SCRIPT","STYLE","NOSCRIPT","TEXTAREA"]);
-  function wrapTeluguText(root){
-    if(!root) return;
-    const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{
-      acceptNode:function(node){
-        const p=node.parentElement;
-        if(!p || SKIP.has(p.tagName) || p.closest("#telugu-mandali-runtime")) return NodeFilter.FILTER_REJECT;
-        if(p.classList.contains("telugu-text")) return NodeFilter.FILTER_REJECT;
-        if(!TELUGU.test(node.nodeValue||"")) return NodeFilter.FILTER_REJECT;
-        return NodeFilter.FILTER_ACCEPT;
-      }
-    });
+  const LATIN=/[A-Za-z]/;
+  const SKIP=new Set(["SCRIPT","STYLE","NOSCRIPT","TEXTAREA","INPUT","OPTION"]);
+  function processTextNode(node){
+    const p=node.parentElement;
+    if(!p || SKIP.has(p.tagName) || p.closest("#telugu-mandali-runtime")) return;
+    if(p.classList.contains("telugu-text") || p.classList.contains("english-text")) return;
+    const text=node.nodeValue||"";
+    if(!TELUGU.test(text) && !LATIN.test(text)) return;
+    const frag=document.createDocumentFragment();
+    const re=/[\u0C00-\u0C7F]+(?:[\u0C00-\u0C7F\s\u200C\u200D\u200B]*[\u0C00-\u0C7F])|[A-Za-z]+(?:[A-Za-z'’.-]*[A-Za-z])?/g;
+    let last=0,match,changed=false;
+    while((match=re.exec(text))){
+      if(match.index>last) frag.appendChild(document.createTextNode(text.slice(last,match.index)));
+      const span=document.createElement("span");
+      const value=match[0];
+      span.className=TELUGU.test(value) ? "telugu-text" : "english-text";
+      span.textContent=value;
+      frag.appendChild(span);
+      last=match.index+value.length;
+      changed=true;
+    }
+    if(!changed) return;
+    if(last<text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    node.parentNode.replaceChild(frag,node);
+  }
+  function wrapTeluguAndEnglish(root){
+    if(!root)return;
+    const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
     const nodes=[];
     let n;
     while((n=walker.nextNode())) nodes.push(n);
-    nodes.forEach(function(node){
-      const text=node.nodeValue||"";
-      const frag=document.createDocumentFragment();
-      let last=0, match;
-      const re=/[\u0C00-\u0C7F]+(?:[\u0C00-\u0C7F\s\u200C\u200D\u200B]*[\u0C00-\u0C7F])*/g;
-      while((match=re.exec(text))){
-        if(match.index>last) frag.appendChild(document.createTextNode(text.slice(last,match.index)));
-        const span=document.createElement("span");
-        span.className="telugu-text";
-        span.textContent=match[0];
-        frag.appendChild(span);
-        last=match.index+match[0].length;
-      }
-      if(last<text.length) frag.appendChild(document.createTextNode(text.slice(last)));
-      if(last>0) node.parentNode.replaceChild(frag,node);
-    });
+    nodes.forEach(processTextNode);
   }
-  function run(){ wrapTeluguText(document.body); }
+  function run(){ wrapTeluguAndEnglish(document.body); }
   if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",run);
   else run();
   const observer=new MutationObserver(function(records){
@@ -3080,14 +3089,13 @@ adminUnlocked=false;APPROVAL_SECTIONS.forEach(function(id){if(!sectionIsApproved
     try{
       records.forEach(function(record){
         record.addedNodes.forEach(function(node){
-          if(node.nodeType===Node.TEXT_NODE){
-            if(node.parentElement) wrapTeluguText(node.parentElement);
-          }else if(node.nodeType===Node.ELEMENT_NODE){
-            wrapTeluguText(node);
-          }
+          if(node.nodeType===Node.TEXT_NODE) processTextNode(node);
+          else if(node.nodeType===Node.ELEMENT_NODE) wrapTeluguAndEnglish(node);
         });
       });
-    }finally{ observer.observe(document.body,{childList:true,subtree:true}); }
+    }finally{
+      observer.observe(document.body,{childList:true,subtree:true});
+    }
   });
   observer.observe(document.body,{childList:true,subtree:true});
 })();
