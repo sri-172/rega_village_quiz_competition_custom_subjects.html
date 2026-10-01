@@ -259,7 +259,7 @@ body.cloud-sync-lock{overflow:hidden}
 
   function approvalState(){
     try{
-      return JSON.parse(localStorage.getItem("regaAdminSectionApprovals")||"{}");
+      return JSON.parse(sessionStorage.getItem("regaAdminSectionApprovalsSession")||"{}");
     }catch(e){ return {}; }
   }
 
